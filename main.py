@@ -1,39 +1,37 @@
-import cv2
 from datetime import datetime
 import pickle
 import os
+
 from kivy.app import App
 from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.uix.label import Label
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.popup import Popup
-from kivy.uix.scrollview import ScrollView
+from kivy.uix.camera import Camera
 from kivy.core.window import Window
-
 
 user_db = {}
 temporary_fingerprint_data = None
 DB_FILE = 'user_db.pkl'
 
-
 class FingerprintApp(App):
     def build(self):
         self.load_user_db()
-        
+
         self.layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-        
+
         self.title_label = Label(text="Fingerprint Authentication System", size_hint=(1, 0.1))
         self.layout.add_widget(self.title_label)
-        
+
         self.register_button = Button(text="Register User", size_hint=(1, 0.1))
         self.register_button.bind(on_press=self.register_user)
         self.layout.add_widget(self.register_button)
-        
+
         self.verify_button = Button(text="Verify Fingerprint", size_hint=(1, 0.1))
         self.verify_button.bind(on_press=self.verify_fingerprint)
         self.layout.add_widget(self.verify_button)
-        
+
         return self.layout
 
     def load_user_db(self):
@@ -81,35 +79,32 @@ class FingerprintApp(App):
         print("ALERT SENT TO ADMIN:")
         print(message)
 
-        # Calculate font size dynamically based on the window size (adjust the scaling factor as necessary)
         screen_width = Window.width
-        font_size = 12  # 5% of screen width, can adjust based on preference
+        font_size = 12
 
         popup_layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
-    
-        # Set dynamic font size for the message Label
-        message_label = Label(text=message, size_hint=(1, None), height=100, font_size=font_size)  # Set fixed height for the label
+
+        message_label = Label(text=message, size_hint=(1, None), height=100, font_size=font_size)
         popup_layout.add_widget(message_label)
-    
-        close_button = Button(text="Close", size_hint=(1, None), height=50) 
+
+        close_button = Button(text="Close", size_hint=(1, None), height=50)
         close_button.bind(on_press=self.close_alert_popup)
         popup_layout.add_widget(close_button)
 
-        # Create the Popup with dynamically adjusted size_hint
-        width_ratio = 0.8  # 80% width of the screen
-        height_ratio = 0.4  # 40% height of the screen
+        width_ratio = 0.8
+        height_ratio = 0.4
 
         self.popup = Popup(
             title="Admin Alert",
             content=popup_layout,
-            size_hint=(width_ratio, height_ratio),  # Adjust the size relative to screen size
-            auto_dismiss=True  # Optional: Close automatically after a set time, set to False to disable
+            size_hint=(width_ratio, height_ratio),
+            auto_dismiss=True
         )
         self.popup.open()
 
-        def close_alert_popup(self, instance):
-            if self.popup:
-                self.popup.dismiss()
+    def close_alert_popup(self, instance):
+        if hasattr(self, 'popup') and self.popup:
+            self.popup.dismiss()
 
     def check_fingerprint(self, fingerprint_data, reg_no):
         if reg_no not in user_db:
@@ -133,34 +128,45 @@ class FingerprintApp(App):
             self.send_alert_to_admin(user_db[reg_no]['name'], reg_no, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
             return False
 
+    def open_camera(self, name):
+        self.camera_layout = BoxLayout(orientation='vertical')
+        self.camera = Camera(play=True)
+        self.camera.resolution = (640, 480)
+        self.camera_layout.add_widget(self.camera)
+
+        self.capture_button = Button(text="Capture Photo", size_hint=(1, 0.2))
+        self.capture_button.bind(on_press=lambda x: self.capture_photo(name))
+        self.camera_layout.add_widget(self.capture_button)
+
+        self.camera_popup = Popup(title="Capture Photo", content=self.camera_layout, size_hint=(0.9, 0.9))
+        self.camera_popup.open()
+
     def capture_photo(self, name):
-        cam = cv2.VideoCapture(0)
-        ret, frame = cam.read()
-        if ret:
-            photo_path = f"{name}_photo.jpg"
-            cv2.imwrite(photo_path, frame)
-            cam.release()
-            print(f"Photo of {name} saved.")
-            return photo_path
+        photo_path = f"{name}_photo.png"
+        texture = self.camera.texture
+        if texture:
+            texture.save(photo_path)
+            print(f"Photo of {name} saved as {photo_path}.")
         else:
-            cam.release()
             print("Failed to capture photo.")
-            return None
+        self.camera.play = False
+        self.camera_popup.dismiss()
+        self.photo_path = photo_path
 
     def register_user(self, instance):
         self.popup_register = BoxLayout(orientation='vertical', spacing=10)
-        
+
         self.name_input = TextInput(hint_text="Enter your name", size_hint=(1, None), height=40)
         self.phone_input = TextInput(hint_text="Enter your phone number", size_hint=(1, None), height=40)
         self.reg_no_input = TextInput(hint_text="Enter your registration number", size_hint=(1, None), height=40)
-        
+
         self.popup_register.add_widget(self.name_input)
         self.popup_register.add_widget(self.phone_input)
         self.popup_register.add_widget(self.reg_no_input)
-        
-        self.capture_button = Button(text="Register", size_hint=(1, None), height=50)
+
+        self.capture_button = Button(text="Open Camera to Register", size_hint=(1, None), height=50)
         self.capture_button.bind(on_press=self.capture_and_register)
-        
+
         self.popup_register.add_widget(self.capture_button)
 
         self.popup = Popup(title="Register User", content=self.popup_register, size_hint=(0.8, 0.7))
@@ -175,15 +181,17 @@ class FingerprintApp(App):
             self.show_popup_message("Error", "This registration number already exists. Please use another.")
             return
 
-        photo_path = self.capture_photo(name)
-        fingerprint_data = self.capture_fingerprint(reg_no)
+        self.popup.dismiss()
+        self.open_camera(name)
 
-        if self.save_user_details(name, phone, reg_no, photo_path, fingerprint_data):
-            global temporary_fingerprint_data
-            temporary_fingerprint_data = fingerprint_data
-            self.show_popup_message("Success", f"User {name} registered successfully.")
-            print(f"Temporary fingerprint data stored for {reg_no}")
-            self.popup.dismiss()
+        def after_photo_capture(instance):
+            fingerprint_data = self.capture_fingerprint(reg_no)
+            if self.save_user_details(name, phone, reg_no, self.photo_path, fingerprint_data):
+                global temporary_fingerprint_data
+                temporary_fingerprint_data = fingerprint_data
+                self.show_popup_message("Success", f"User {name} registered successfully.")
+
+        self.capture_button.bind(on_press=after_photo_capture)
 
     def verify_fingerprint(self, instance):
         self.popup_verify = BoxLayout(orientation='vertical', spacing=10)
@@ -216,10 +224,9 @@ class FingerprintApp(App):
         close_button = Button(text="Close", size_hint=(1, None), height=50)
         close_button.bind(on_press=lambda x: self.popup.dismiss())
         popup_message.add_widget(close_button)
-        
+
         self.popup = Popup(title=title, content=popup_message, size_hint=(0.7, 0.3))
         self.popup.open()
-
 
 if __name__ == '__main__':
     FingerprintApp().run()
